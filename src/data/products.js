@@ -1,4 +1,8 @@
-const products = [
+import axios from 'axios';
+
+const API_PRODUCTS_URL = 'http://localhost:5000/api/products';
+
+export const defaultProducts = [
   {
     id: 1,
     name: 'T-shirt with Tape Details',
@@ -73,4 +77,9 @@ const products = [
   },
 ];
 
-export default products;
+export async function fetchProductsFromBackend(params = {}) {
+  const response = await axios.get(API_PRODUCTS_URL, { params });
+  return response.data?.products || [];
+}
+
+export default defaultProducts;

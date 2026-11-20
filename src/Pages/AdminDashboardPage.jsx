@@ -24,13 +24,14 @@ export default function AdminDashboardPage({
     }
   }, [formOpen, editingProduct]);
 
-  const myProducts = products.filter((product) => product.createdBy === account.email);
-  const saleCount = myProducts.filter((product) => product.discount).length;
+  // مونگو ڈی بی کے فیلڈز کے مطابق فلٹر کرنا (createdBy یا admin)
+  const myProducts = products || [];
+  const saleCount = myProducts.filter((product) => product.discount || product.oldPrice).length;
   const averagePrice = myProducts.length
-    ? myProducts.reduce((sum, product) => sum + product.price, 0) / myProducts.length
+    ? myProducts.reduce((sum, product) => sum + (Number(product.price) || 0), 0) / myProducts.length
     : 0;
   const visibleProducts = myProducts.filter((product) =>
-    product.name.toLowerCase().includes(searchTerm.trim().toLowerCase()),
+    product.name && product.name.toLowerCase().includes(searchTerm.trim().toLowerCase()),
   );
 
   const openNewProductForm = () => {
@@ -58,28 +59,34 @@ export default function AdminDashboardPage({
       oldPrice && oldPrice > price
         ? `-${Math.round(((oldPrice - price) / oldPrice) * 100)}%`
         : null;
-    const product = {
-      id: editingProduct?.id,
+
+    // بیک اینڈ کے ماڈل کے مطابق ڈیٹا تیار کرنا
+    const productData = {
+      _id: editingProduct?._id || editingProduct?.id,
       name: formData.get('name').trim(),
+      description: formData.get('description')?.trim() || formData.get('name').trim(), // بیک اینڈ کے لیے ڈسکرپشن لازمی ہے
+      category: formData.get('category')?.trim() || 'General', // بیک اینڈ کے لیے کیٹیگری
       price,
       oldPrice,
       discount,
-      rating: Number(formData.get('rating')),
-      image: formData.get('image').trim(),
-      createdBy: editingProduct?.createdBy ?? account.email,
+      rating: Number(formData.get('rating') || 5),
+      stock: Number(formData.get('stock') || 10), // بیک اینڈ کے لیے اسٹاک
+      images: [formData.get('image').trim()], // بیک اینڈ ایرے کی شکل میں لیتا ہے
+      isActive: true,
     };
 
     if (editingProduct) {
-      onUpdateProduct(product);
+      onUpdateProduct(productData);
     } else {
-      delete product.id;
-      onCreateProduct(product);
+      delete productData._id;
+      onCreateProduct(productData);
     }
     closeForm();
   };
 
   const confirmDelete = () => {
-    onDeleteProduct(pendingDeleteId);
+    const targetId = pendingDeleteId?._id || pendingDeleteId?.id || pendingDeleteId;
+    onDeleteProduct(targetId);
     setPendingDeleteId(null);
   };
 
@@ -96,7 +103,9 @@ export default function AdminDashboardPage({
           <p className="mt-2 text-gray-600">
             Add products, update details, and manage what appears in your store.
           </p>
-          <p className="mt-2 text-sm text-gray-500">Signed in as {account.name} ({account.email})</p>
+          <p className="mt-2 text-sm text-gray-500">
+            Signed in as {account?.name || 'Admin'} ({account?.email || ''})
+          </p>
         </div>
         <div className="flex items-center gap-5">
           <Link to="/" className="text-sm font-semibold text-indigo-600 hover:text-indigo-700">
@@ -132,7 +141,7 @@ export default function AdminDashboardPage({
       {formOpen && (
         <form
           ref={formRef}
-          key={editingProduct?.id ?? 'new'}
+          key={editingProduct?._id ?? editingProduct?.id ?? 'new'}
           onSubmit={handleSubmit}
           className="mt-6 rounded-2xl border border-indigo-100 bg-indigo-50/50 p-5 sm:p-7"
         >
@@ -162,12 +171,22 @@ export default function AdminDashboardPage({
               />
             </label>
             <label className="block text-sm font-medium text-gray-700">
+              Category
+              <input
+                name="category"
+                required
+                defaultValue={editingProduct?.category ?? 'Clothing'}
+                className={fieldClassName}
+                placeholder="e.g. Clothing, Electronics"
+              />
+            </label>
+            <label className="block text-sm font-medium text-gray-700 sm:col-span-2">
               Image URL
               <input
                 name="image"
                 type="url"
                 required
-                defaultValue={editingProduct?.image ?? ''}
+                defaultValue={editingProduct?.images?.[0] ?? editingProduct?.image ?? ''}
                 className={fieldClassName}
                 placeholder="https://example.com/product.jpg"
               />
@@ -185,6 +204,17 @@ export default function AdminDashboardPage({
               />
             </label>
             <label className="block text-sm font-medium text-gray-700">
+              Stock Quantity
+              <input
+                name="stock"
+                type="number"
+                min="0"
+                required
+                defaultValue={editingProduct?.stock ?? '50'}
+                className={fieldClassName}
+              />
+            </label>
+            <label className="block text-sm font-medium text-gray-700">
               Original price ($, optional)
               <input
                 name="oldPrice"
@@ -196,7 +226,7 @@ export default function AdminDashboardPage({
                 placeholder="Set higher than current price for a sale"
               />
             </label>
-            <label className="block text-sm font-medium text-gray-700 sm:max-w-xs">
+            <label className="block text-sm font-medium text-gray-700">
               Rating (0-5)
               <input
                 name="rating"
@@ -234,74 +264,79 @@ export default function AdminDashboardPage({
       <div className="mt-5 overflow-hidden rounded-2xl border border-gray-200">
         {visibleProducts.length ? (
           <ul className="divide-y divide-gray-200">
-            {visibleProducts.map((product) => (
-              <li
-                key={product.id}
-                className="flex flex-col gap-4 bg-white p-4 sm:flex-row sm:items-center sm:px-5"
-              >
-                <img
-                  src={product.image}
-                  alt=""
-                  className="h-16 w-16 shrink-0 rounded-xl bg-gray-100 object-cover"
-                />
-                <div className="min-w-0 flex-1">
-                  <h3 className="truncate font-semibold text-gray-950">{product.name}</h3>
-                  <p className="mt-1 text-sm text-gray-600">
-                    ${product.price.toFixed(2)}
-                    {product.oldPrice && (
-                      <span className="ml-2 text-gray-400 line-through">
-                        ${product.oldPrice.toFixed(2)}
-                      </span>
-                    )}
-                    <span className="ml-3">Rating: {product.rating.toFixed(1)}/5</span>
-                  </p>
-                </div>
-                {product.discount && (
-                  <span className="w-fit rounded-full bg-red-50 px-3 py-1 text-xs font-bold text-red-600">
-                    {product.discount} off
-                  </span>
-                )}
-                <div className="flex gap-2">
-                  <button
-                    type="button"
-                    onClick={() => openEditProductForm(product)}
-                    className="rounded-full border border-gray-300 px-4 py-2 text-sm font-semibold text-gray-700 hover:border-indigo-600 hover:text-indigo-600"
-                  >
-                    Edit
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setPendingDeleteId(product.id)}
-                    className="rounded-full border border-red-200 px-4 py-2 text-sm font-semibold text-red-600 hover:bg-red-50"
-                  >
-                    Delete
-                  </button>
-                </div>
-                {pendingDeleteId === product.id && (
-                  <div
-                    role="group"
-                    aria-label={`Confirm deleting ${product.name}`}
-                    className="flex items-center gap-2 rounded-xl bg-red-50 p-3 sm:ml-auto"
-                  >
-                    <span className="text-sm text-red-800">Delete this product?</span>
+            {visibleProducts.map((product) => {
+              const productId = product._id || product.id;
+              const productImage = product.images?.[0] || product.image || '';
+              return (
+                <li
+                  key={productId}
+                  className="flex flex-col gap-4 bg-white p-4 sm:flex-row sm:items-center sm:px-5"
+                >
+                  <img
+                    src={productImage}
+                    alt=""
+                    className="h-16 w-16 shrink-0 rounded-xl bg-gray-100 object-cover"
+                  />
+                  <div className="min-w-0 flex-1">
+                    <h3 className="truncate font-semibold text-gray-950">{product.name}</h3>
+                    <p className="mt-1 text-sm text-gray-600">
+                      ${Number(product.price).toFixed(2)}
+                      {product.oldPrice && (
+                        <span className="ml-2 text-gray-400 line-through">
+                          ${Number(product.oldPrice).toFixed(2)}
+                        </span>
+                      )}
+                      <span className="ml-3">Rating: {Number(product.rating || 5).toFixed(1)}/5</span>
+                      <span className="ml-3 text-gray-500">Stock: {product.stock ?? 'N/A'}</span>
+                    </p>
+                  </div>
+                  {product.discount && (
+                    <span className="w-fit rounded-full bg-red-50 px-3 py-1 text-xs font-bold text-red-600">
+                      {product.discount} off
+                    </span>
+                  )}
+                  <div className="flex gap-2">
                     <button
                       type="button"
-                      onClick={confirmDelete}
-                      className="rounded-full bg-red-600 px-3 py-2 text-sm font-semibold text-white hover:bg-red-700"
+                      onClick={() => openEditProductForm(product)}
+                      className="rounded-full border border-gray-300 px-4 py-2 text-sm font-semibold text-gray-700 hover:border-indigo-600 hover:text-indigo-600"
                     >
-                      Confirm
+                      Edit
                     </button>
                     <button
                       type="button"
-                      onClick={() => setPendingDeleteId(null)}
-                      className="rounded-full border border-red-200 px-3 py-2 text-sm font-semibold text-red-700 hover:bg-white"
+                      onClick={() => setPendingDeleteId(productId)}
+                      className="rounded-full border border-red-200 px-4 py-2 text-sm font-semibold text-red-600 hover:bg-red-50"
                     >
-                      Cancel
+                      Delete
                     </button>
                   </div>
-                )}
-              </li>
-            ))}
+                  {pendingDeleteId === productId && (
+                    <div
+                      role="group"
+                      aria-label={`Confirm deleting ${product.name}`}
+                      className="flex items-center gap-2 rounded-xl bg-red-50 p-3 sm:ml-auto"
+                    >
+                      <span className="text-sm text-red-800">Delete this product?</span>
+                      <button
+                        type="button"
+                        onClick={confirmDelete}
+                        className="rounded-full bg-red-600 px-3 py-2 text-sm font-semibold text-white hover:bg-red-700"
+                      >
+                        Confirm
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setPendingDeleteId(null)}
+                        className="rounded-full border border-red-200 px-3 py-2 text-sm font-semibold text-red-700 hover:bg-white"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  )}
+                </li>
+              );
+            })}
           </ul>
         ) : (
           <p className="bg-white px-5 py-10 text-center text-gray-500">

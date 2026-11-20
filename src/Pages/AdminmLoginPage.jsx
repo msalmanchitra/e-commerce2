@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { authenticateAccount } from '../data/accounts';
+import axios from 'axios';
 
 export default function AdminLoginPage({ onAuthenticated }) {
   const [showPassword, setShowPassword] = useState(false);
@@ -12,19 +12,30 @@ export default function AdminLoginPage({ onAuthenticated }) {
     setError('');
     const formData = new FormData(event.currentTarget);
 
+    const email = formData.get('email');
+    const password = formData.get('password');
+
     try {
-      const account = await authenticateAccount({
-        email: formData.get('email'),
-        password: formData.get('password'),
+      // یہ رہا آپ کے بیک اینڈ کا لنک جو براہ راست MongoDB سے لاگ ان چیک کرے گا
+      const response = await axios.post('http://localhost:5000/api/auth/login', {
+        email,
+        password,
       });
-      onAuthenticated(account);
+
+      // بیک اینڈ سے آنے والا یوزر اور ٹوکن
+      const { user, token } = response.data;
+      
+      // ٹوکن کو براؤزر میں سیو کرنا تاکہ اگلی ریکوئسٹس میں کام آئے
+      localStorage.setItem('token', token);
+
+      onAuthenticated(user);
       navigate('/admin');
     } catch (loginError) {
       console.error('Unable to sign in:', loginError);
       setError(
-        loginError instanceof Error
-          ? loginError.message
-          : 'Unable to sign in. Please try again.',
+        loginError.response && loginError.response.data && loginError.response.data.message
+          ? loginError.response.data.message
+          : 'Unable to sign in. Please check your credentials.',
       );
     }
   };
@@ -91,7 +102,7 @@ export default function AdminLoginPage({ onAuthenticated }) {
           </Link>
         </p>
         <p className="mt-4 text-xs leading-5 text-gray-500">
-          Demo accounts are stored in this browser only.
+          Connected to MongoDB Backend Server.
         </p>
       </div>
     </section>

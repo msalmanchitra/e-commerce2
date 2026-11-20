@@ -3,13 +3,31 @@ import { Link } from 'react-router-dom';
 import SellerLogo from './SellerLogo';
 
 export default function ProductCard({ product, seller, onAddToCart = () => {} }) {
+  // بیک اینڈ سے آنے والی تصویر یا لوکل تصویر کو محفوظ طریقے سے لینا
+  const productImage =
+    (Array.isArray(product?.images) && product.images[0]) ||
+    product?.image ||
+    '';
+
+  const ratingValue = Number.isFinite(Number(product?.rating)) ? Number(product.rating) : 5;
+  const priceValue = Number.isFinite(Number(product?.price)) ? Number(product.price) : 0;
+  const oldPriceValue =
+    product?.oldPrice !== null && product?.oldPrice !== undefined && Number.isFinite(Number(product.oldPrice))
+      ? Number(product.oldPrice)
+      : null;
+  const sellerId = seller?._id || seller?.id;
+
   return (
     <article className="group flex flex-col justify-between rounded-2xl border border-gray-100 bg-white p-4 shadow-sm transition-all duration-300 hover:-translate-y-2 hover:shadow-xl">
       <div>
         {/* Product Image Box */}
         <div className="relative mb-4 aspect-square w-full overflow-hidden rounded-xl bg-gray-100">
-          <img src={product.image} alt={product.name} className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-110" />
-          {product.discount && (
+          <img
+            src={productImage}
+            alt={product?.name || 'Product'}
+            className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-110"
+          />
+          {product?.discount && (
             <span className="absolute top-3 left-3 bg-red-500 text-white text-[10px] font-bold px-2.5 py-1 rounded-full uppercase">
               {product.discount}
             </span>
@@ -18,11 +36,11 @@ export default function ProductCard({ product, seller, onAddToCart = () => {} })
 
         {/* Product Title */}
         <h3 className="font-semibold text-gray-900 group-hover:text-indigo-600 transition-colors line-clamp-1">
-          {product.name}
+          {product?.name}
         </h3>
-        {seller && (
+        {seller && sellerId && (
           <Link
-            to={`/sellers/${seller.id}`}
+            to={`/sellers/${sellerId}`}
             className="mt-2 inline-flex items-center gap-2 text-xs font-medium text-gray-600 hover:text-indigo-600"
           >
             <SellerLogo seller={seller} className="h-6 w-6 text-[9px]" />
@@ -33,23 +51,24 @@ export default function ProductCard({ product, seller, onAddToCart = () => {} })
         {/* Rating Stars */}
         <div className="flex items-center gap-1 my-1.5 text-amber-400">
           {[...Array(5)].map((_, i) => (
-            <Star key={i} size={14} fill={i < Math.round(product.rating) ? 'currentColor' : 'none'} />
+            <Star key={i} size={14} fill={i < Math.round(ratingValue) ? 'currentColor' : 'none'} />
           ))}
-          <span className="ml-1 text-xs font-medium text-gray-500">({product.rating.toFixed(1)})</span>
+          <span className="ml-1 text-xs font-medium text-gray-500">({ratingValue.toFixed(1)})</span>
         </div>
       </div>
 
       {/* Price and Add to Cart Button */}
       <div className="flex items-center justify-between mt-4 pt-3 border-t border-gray-50">
         <div>
-          <span className="text-lg font-bold text-gray-900">${product.price}</span>
-          {product.oldPrice && (
-            <span className="text-sm text-gray-400 line-through ml-2">${product.oldPrice}</span>
+          <span className="text-lg font-bold text-gray-900">${priceValue}</span>
+          {oldPriceValue !== null && (
+            <span className="text-sm text-gray-400 line-through ml-2">${oldPriceValue}</span>
           )}
         </div>
         <button
+          type="button"
           onClick={() => onAddToCart(product)}
-          aria-label={`Add ${product.name} to cart`}
+          aria-label={`Add ${product?.name || 'product'} to cart`}
           className="flex items-center justify-center rounded-xl bg-gray-900 p-2.5 text-white shadow-sm transition-all hover:bg-indigo-600 active:scale-90"
         >
           <ShoppingBag size={18} />

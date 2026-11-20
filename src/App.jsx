@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { BrowserRouter, Navigate, Route, Routes, useParams } from 'react-router-dom';
+import axios from 'axios';
 import AdminDashboardPage from './Pages/AdminDashboardPage';
 import AdminLoginPage from './Pages/AdminmLoginPage';
 import CreateAccountPage from './Pages/CreateAccountPage';
@@ -14,51 +15,27 @@ import Hero from './components/Hero';
 import Navbar from './components/Navbar';
 import ProductGrid from './components/ProductGrid';
 
-function loadSellerDirectory() {
+const API_BASE = 'http://localhost:5000/api';
+
+function loadSellersSafe() {
   try {
     return { sellers: getPublicSellers(), error: '' };
   } catch (error) {
     console.error('Unable to load seller directory:', error);
     return {
       sellers: [],
-      error: 'Seller search is temporarily unavailable because account data could not be loaded.',
+      error: 'Seller directory is temporarily unavailable.',
     };
-  }
-}
-
-function loadProducts() {
-  try {
-    const savedProducts = localStorage.getItem('shopco-products');
-    if (!savedProducts) return defaultProducts;
-
-    const parsedProducts = JSON.parse(savedProducts);
-    const isValidProduct = (product) =>
-      product &&
-      typeof product.id === 'number' &&
-      typeof product.name === 'string' &&
-      Number.isFinite(product.price) &&
-      (product.oldPrice === null || Number.isFinite(product.oldPrice)) &&
-      (product.discount === null || typeof product.discount === 'string') &&
-      Number.isFinite(product.rating) &&
-      typeof product.image === 'string' &&
-      (product.createdBy === undefined || typeof product.createdBy === 'string');
-
-    if (!Array.isArray(parsedProducts) || !parsedProducts.every(isValidProduct)) {
-      throw new Error('Saved product data has an invalid format.');
-    }
-
-    return parsedProducts;
-  } catch (error) {
-    console.error('Unable to load saved products:', error);
-    return defaultProducts;
   }
 }
 
 export default function App() {
   const [cart, setCart] = useState([]);
   const [searchTerm, setSearchTerm] = useState('');
-  const [products, setProducts] = useState(loadProducts);
-  const [sellerDirectory, setSellerDirectory] = useState(loadSellerDirectory);
+  const [selectedCategory, setSelectedCategory] = useState('');
+  const [products, setProducts] = useState(defaultProducts);
+  const [sellerDirectory, setSellerDirectory] = useState(loadSellersSafe);
+
   const [currentAccount, setCurrentAccount] = useState(() => {
     try {
       const savedAccount = sessionStorage.getItem('shopco-session');
@@ -69,64 +46,100 @@ export default function App() {
     }
   });
 
-  useEffect(() => {
-    const refreshStoredData = (event) => {
-      if (!event || event.key === 'shopco-accounts') {
-        setSellerDirectory(loadSellerDirectory());
-      }
-      if (!event || event.key === 'shopco-products') {
-        setProducts(loadProducts());
-      }
-    };
-
-    window.addEventListener('storage', refreshStoredData);
-    return () => window.removeEventListener('storage', refreshStoredData);
-  }, []);
-
-  useEffect(() => {
+  // بیک اینڈ سے پروڈکٹس فیچ کرنا
+  const fetchProducts = async (category = '') => {
     try {
-      localStorage.setItem('shopco-products', JSON.stringify(products));
+      const params = {};
+      if (category) {
+        params.category = category;
+      }
+      const response = await axios.get(`${API_BASE}/products`, { params });
+      if (Array.isArray(response.data?.products)) {
+        setProducts(response.data.products);
+      }
     } catch (error) {
-      console.error('Unable to save products:', error);
+      console.error('Unable to fetch products from backend:', error);
     }
-  }, [products]);
+  };
 
-  const addToCart = (product) => {
+  useEffect(() => {
+    fetchProducts(selectedCategory);
+  }, [selectedCategory]);
+
+  const handleSelectCategory = async (category, backendProducts) => {
+    const nextCategory = selectedCategory === category ? '' : category;
+    setSelectedCategory(nextCategory);
+
+    if (!nextCategory) {
+      await fetchProducts('');
+      return;
+    }
+
+    if (Array.isArray(backendProducts)) {
+      setProducts(backendProducts);
+    } else {
+      await fetchProducts(nextCategory);
+    }
+  };
+
+  const addToCart = async (product) => {
+    const productId = product?._id || product?.id;
+    try {
+      const token = localStorage.getItem('token');
+      if (token && productId) {
+        await axios.post(
+          `${API_BASE}/cart/items`,
+          { productId, quantity: 1 },
+          { headers: { Authorization: `Bearer ${token}` } },
+        );
+      }
+    } catch (error) {
+      console.error('Unable to sync cart item with backend:', error);
+    }
     setCart((items) => [...items, product]);
   };
 
-  const createProduct = (product) => {
-    setProducts((items) => [
-      {
-        ...product,
-        id: Math.max(0, ...items.map((item) => Number(item.id) || 0)) + 1,
-        createdBy: currentAccount.email,
-      },
-      ...items,
-    ]);
+  const createProduct = async (productData) => {
+    try {
+      const token = localStorage.getItem('token');
+      const response = await axios.post(`${API_BASE}/products`, productData, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (response.data?.product) {
+        setProducts((items) => [response.data.product, ...items]);
+      }
+    } catch (error) {
+      console.error('Unable to create product:', error);
+    }
   };
 
-  const updateProduct = (updatedProduct) => {
-    setProducts((items) =>
-      items.map((product) =>
-        product.id === updatedProduct.id && product.createdBy === currentAccount.email
-          ? { ...product, ...updatedProduct }
-          : product,
-      ),
-    );
+  const updateProduct = async (updatedProduct) => {
+    try {
+      const token = localStorage.getItem('token');
+      const productId = updatedProduct._id || updatedProduct.id;
+      const response = await axios.patch(
+        `${API_BASE}/products/${productId}`,
+        updatedProduct,
+        { headers: { Authorization: `Bearer ${token}` } },
+      );
+      setProducts((items) =>
+        items.map((product) =>
+          (product._id && product._id === productId) ||
+          (product.id && product.id === productId)
+            ? response.data.product || { ...product, ...updatedProduct }
+            : product,
+        ),
+      );
+    } catch (error) {
+      console.error('Unable to update product:', error);
+    }
   };
 
   const authenticate = (account) => {
     try {
       sessionStorage.setItem('shopco-session', JSON.stringify(account));
       setCurrentAccount(account);
-      setSellerDirectory((directory) => ({
-        ...directory,
-        sellers: [
-          account,
-          ...directory.sellers.filter((seller) => seller.id !== account.id),
-        ],
-      }));
+      setSellerDirectory(loadSellersSafe());
     } catch (error) {
       console.error('Unable to save current account:', error);
       throw new Error(
@@ -138,16 +151,24 @@ export default function App() {
 
   const signOut = () => {
     sessionStorage.removeItem('shopco-session');
+    localStorage.removeItem('token');
     setCurrentAccount(null);
   };
 
-  const deleteProduct = (productId) => {
-    setProducts((items) =>
-      items.filter(
-        (product) =>
-          product.id !== productId || product.createdBy !== currentAccount.email,
-      ),
-    );
+  const deleteProduct = async (productId) => {
+    try {
+      const token = localStorage.getItem('token');
+      await axios.delete(`${API_BASE}/products/${productId}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      setProducts((items) =>
+        items.filter(
+          (product) => product._id !== productId && product.id !== productId,
+        ),
+      );
+    } catch (error) {
+      console.error('Unable to delete product:', error);
+    }
   };
 
   const removeFromCart = (itemIndex) => {
@@ -156,7 +177,7 @@ export default function App() {
 
   const search = (value) => {
     setSearchTerm(value);
-    setSellerDirectory(loadSellerDirectory());
+    setSellerDirectory(loadSellersSafe());
   };
 
   return (
@@ -176,14 +197,27 @@ export default function App() {
               element={
                 <>
                   <Hero />
-                  <CategorySection />
-                  <ProductGrid products={products} sellers={sellerDirectory.sellers} onAddToCart={addToCart} searchTerm={searchTerm} />
+                  <CategorySection onSelectCategory={handleSelectCategory} />
+                  <ProductGrid
+                    title={selectedCategory ? `${selectedCategory.toUpperCase()}` : 'NEW ARRIVALS'}
+                    products={products}
+                    sellers={sellerDirectory.sellers}
+                    onAddToCart={addToCart}
+                    searchTerm={searchTerm}
+                  />
                 </>
               }
             />
             <Route
               path="/new-arrivals"
-              element={<ProductGrid products={products} sellers={sellerDirectory.sellers} onAddToCart={addToCart} searchTerm={searchTerm} />}
+              element={
+                <ProductGrid
+                  products={products}
+                  sellers={sellerDirectory.sellers}
+                  onAddToCart={addToCart}
+                  searchTerm={searchTerm}
+                />
+              }
             />
             <Route
               path="/sale"
@@ -250,7 +284,7 @@ export default function App() {
 
 function SellerProfileRoute({ sellers, products, onAddToCart, searchTerm }) {
   const { sellerId } = useParams();
-  const seller = sellers.find((item) => item.id === sellerId);
+  const seller = sellers.find((item) => item.id === sellerId || item._id === sellerId);
 
   return (
     <SellerProfilePage

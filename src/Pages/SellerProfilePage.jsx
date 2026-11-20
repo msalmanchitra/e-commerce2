@@ -15,7 +15,19 @@ export default function SellerProfilePage({ seller, products, sellers, onAddToCa
     );
   }
 
-  const sellerProducts = products.filter((product) => product.createdBy === seller.email);
+  const sellerEmail = seller.email?.toLowerCase();
+  const sellerId = seller._id || seller.id;
+
+  // بیک اینڈ یا لوکل پروڈکٹس میں سے اس سیلر کی پراڈکٹس نکالنا
+  const sellerProducts = (products || []).filter((product) => {
+    if (sellerEmail && product.createdBy) {
+      return product.createdBy.toLowerCase() === sellerEmail;
+    }
+    if (sellerId && (product.sellerId === sellerId || product.seller === sellerId)) {
+      return true;
+    }
+    return false;
+  });
 
   return (
     <>

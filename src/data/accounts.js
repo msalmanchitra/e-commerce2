@@ -1,94 +1,115 @@
-const ACCOUNT_STORAGE_KEY = 'shopco-accounts';
+import axios from 'axios';
 
-function readAccounts() {
-  const savedAccounts = localStorage.getItem(ACCOUNT_STORAGE_KEY);
-  if (!savedAccounts) return [];
+const API_BASE_URL = 'http://localhost:5000/api/auth';
+const SELLERS_CACHE_KEY = 'shopco-sellers-cache';
+const TOKEN_STORAGE_KEY = 'token';
 
-  const parsedAccounts = JSON.parse(savedAccounts);
-  if (
-    !Array.isArray(parsedAccounts) ||
-    !parsedAccounts.every(
-      (account) =>
-        account &&
-        typeof account.name === 'string' &&
-        typeof account.email === 'string' &&
-        typeof account.salt === 'string' &&
-        typeof account.passwordHash === 'string' &&
-        (account.logo === undefined || typeof account.logo === 'string'),
-    )
-  ) {
-    throw new Error('Saved account data has an invalid format.');
+function readCachedSellers() {
+  try {
+    const saved = localStorage.getItem(SELLERS_CACHE_KEY);
+    if (!saved) return [];
+    const parsed = JSON.parse(saved);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
   }
-
-  let migrated = false;
-  const accounts = parsedAccounts.map((account) => {
-    if (typeof account.id === 'string') return account;
-    migrated = true;
-    return { ...account, id: crypto.randomUUID() };
-  });
-
-  if (migrated) {
-    localStorage.setItem(ACCOUNT_STORAGE_KEY, JSON.stringify(accounts));
-  }
-
-  return accounts;
 }
 
-async function hashPassword(password, salt) {
-  const data = new TextEncoder().encode(`${salt}:${password}`);
-  const digest = await crypto.subtle.digest('SHA-256', data);
-  return Array.from(new Uint8Array(digest), (byte) =>
-    byte.toString(16).padStart(2, '0'),
-  ).join('');
+function cacheSeller(seller) {
+  if (!seller || (!seller.id && !seller._id && !seller.email)) return;
+
+  const normalizedSeller = {
+    id: seller.id || seller._id || seller.email,
+    name: seller.name || 'Seller',
+    email: (seller.email || '').toLowerCase(),
+    logo: seller.logo || '',
+    role: seller.role || 'user',
+  };
+
+  const current = readCachedSellers().filter(
+    (item) =>
+      item.email !== normalizedSeller.email && item.id !== normalizedSeller.id,
+  );
+
+  try {
+    localStorage.setItem(
+      SELLERS_CACHE_KEY,
+      JSON.stringify([normalizedSeller, ...current]),
+    );
+  } catch (error) {
+    console.error('Unable to cache seller info:', error);
+  }
 }
 
 export async function registerAccount({ name, email, password, logo }) {
-  const accounts = readAccounts();
-  const normalizedEmail = email.trim().toLowerCase();
+  try {
+    const response = await axios.post(`${API_BASE_URL}/register`, {
+      name: name?.trim(),
+      email: email?.trim(),
+      password,
+    });
 
-  if (accounts.some((account) => account.email === normalizedEmail)) {
-    throw new Error('An account with this email already exists. Please sign in.');
+    const { user, token } = response.data || {};
+    if (token) {
+      localStorage.setItem(TOKEN_STORAGE_KEY, token);
+    }
+
+    const account = {
+      id: user?.id || user?._id,
+      name: user?.name || name?.trim(),
+      email: (user?.email || email || '').toLowerCase(),
+      role: user?.role || 'user',
+      logo: logo?.trim() || '',
+    };
+
+    cacheSeller(account);
+    return account;
+  } catch (error) {
+    const message =
+      error?.response?.data?.message ||
+      error?.message ||
+      'Unable to create your account. Please try again.';
+    throw new Error(message);
   }
-
-  const salt = Array.from(crypto.getRandomValues(new Uint8Array(16)), (byte) =>
-    byte.toString(16).padStart(2, '0'),
-  ).join('');
-  const account = {
-    id: crypto.randomUUID(),
-    name: name.trim(),
-    email: normalizedEmail,
-    logo: logo?.trim() || '',
-    salt,
-    passwordHash: await hashPassword(password, salt),
-  };
-
-  localStorage.setItem(ACCOUNT_STORAGE_KEY, JSON.stringify([...accounts, account]));
-  return {
-    id: account.id,
-    name: account.name,
-    email: account.email,
-    logo: account.logo,
-  };
 }
 
 export async function authenticateAccount({ email, password }) {
-  const normalizedEmail = email.trim().toLowerCase();
-  const account = readAccounts().find((item) => item.email === normalizedEmail);
+  try {
+    const response = await axios.post(`${API_BASE_URL}/login`, {
+      email: email?.trim(),
+      password,
+    });
 
-  if (!account || (await hashPassword(password, account.salt)) !== account.passwordHash) {
-    throw new Error('Email or password is incorrect.');
+    const { user, token } = response.data || {};
+    if (token) {
+      localStorage.setItem(TOKEN_STORAGE_KEY, token);
+    }
+
+    const cachedMatch = readCachedSellers().find(
+      (item) => item.email === (user?.email || email || '').toLowerCase(),
+    );
+
+    const account = {
+      id: user?.id || user?._id,
+      name: user?.name || cachedMatch?.name || 'Seller',
+      email: (user?.email || email || '').toLowerCase(),
+      role: user?.role || cachedMatch?.role || 'user',
+      logo: cachedMatch?.logo || '',
+    };
+
+    cacheSeller(account);
+    return account;
+  } catch (error) {
+    const message =
+      error?.response?.data?.message ||
+      error?.message ||
+      'Email or password is incorrect.';
+    throw new Error(message);
   }
-
-  return {
-    id: account.id,
-    name: account.name,
-    email: account.email,
-    logo: account.logo ?? '',
-  };
 }
 
 export function getPublicSellers() {
-  return readAccounts().map(({ id, name, email, logo }) => ({
+  return readCachedSellers().map(({ id, name, email, logo }) => ({
     id,
     name,
     email,

@@ -1,18 +1,25 @@
 import ProductCard from './ProductCard';
 
 export default function ProductGrid({
-  products,
+  products = [],
   sellers = [],
   title = 'NEW ARRIVALS',
   onAddToCart,
   searchTerm = '',
   saleOnly = false,
 }) {
-  const filteredProducts = products.filter((product) => {
-    const matchesSearch = product.name
-      .toLowerCase()
-      .includes(searchTerm.trim().toLowerCase());
-    return matchesSearch && (!saleOnly || Boolean(product.discount));
+  const normalizedSearch = searchTerm.trim().toLowerCase();
+
+  const filteredProducts = (products || []).filter((product) => {
+    const productName = (product?.name || '').toLowerCase();
+    const matchesSearch = productName.includes(normalizedSearch);
+    const hasDiscount = Boolean(
+      product?.discount ||
+        (product?.oldPrice !== null &&
+          product?.oldPrice !== undefined &&
+          Number(product.oldPrice) > Number(product.price)),
+    );
+    return matchesSearch && (!saleOnly || hasDiscount);
   });
 
   return (
@@ -24,14 +31,26 @@ export default function ProductGrid({
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
-        {filteredProducts.map((product) => (
-          <ProductCard
-            key={product.id}
-            product={product}
-            seller={sellers.find((item) => item.email === product.createdBy)}
-            onAddToCart={onAddToCart}
-          />
-        ))}
+        {filteredProducts.map((product, index) => {
+          const productKey = product?._id || product?.id || index;
+          const matchedSeller = sellers.find(
+            (item) =>
+              (item?.email &&
+                product?.createdBy &&
+                item.email.toLowerCase() === product.createdBy.toLowerCase()) ||
+              (item?._id && item._id === product?.sellerId) ||
+              (item?.id && item.id === product?.sellerId),
+          );
+
+          return (
+            <ProductCard
+              key={productKey}
+              product={product}
+              seller={matchedSeller}
+              onAddToCart={onAddToCart}
+            />
+          );
+        })}
       </div>
       {filteredProducts.length === 0 && (
         <p className="text-center text-gray-500">No products found.</p>

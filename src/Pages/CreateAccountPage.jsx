@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { registerAccount } from '../data/accounts';
+import axios from 'axios';
 
 export default function CreateAccountPage({ onAuthenticated }) {
   const [showPassword, setShowPassword] = useState(false);
@@ -25,20 +25,36 @@ export default function CreateAccountPage({ onAuthenticated }) {
     }
 
     try {
-      const account = await registerAccount({ name, email, password, logo });
+      // آپ کے بیک اینڈ کا رجسٹریشن راؤٹ (/api/auth/register)
+      const response = await axios.post('http://localhost:5000/api/auth/register', {
+        name,
+        email,
+        password,
+      });
+
+      const { user, token } = response.data;
+
+      // ٹوکن کو لوکل اسٹاوریج میں سیو کرنا تاکہ آگے کی API کالز میں استعمال ہو
+      if (token) {
+        localStorage.setItem('token', token);
+      }
+
       onAuthenticated({
-        id: account.id,
-        name: account.name,
-        email: account.email,
-        logo: account.logo,
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        logo,
       });
       navigate('/admin');
     } catch (accountError) {
       console.error('Unable to create account:', accountError);
       setError(
-        accountError instanceof Error
-          ? accountError.message
-          : 'Unable to create your account. Please try again.',
+        accountError.response && accountError.response.data && accountError.response.data.message
+          ? accountError.response.data.message
+          : accountError instanceof Error
+            ? accountError.message
+            : 'Unable to create your account. Please try again.',
       );
     }
   };

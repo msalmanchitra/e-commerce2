@@ -1,0 +1,1 @@
+export const BASE_URL = "https://backend-lac-kappa-12.vercel.app";
